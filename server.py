@@ -1,0 +1,272 @@
+"""
+MediaDL — FastAPI backend with yt-dlp
+YouTube + Instagram media downloader
+"""
+
+import asyncio
+import json
+import os
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+app = FastAPI(title="MediaDL")
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve static frontend
+PUBLIC_DIR = Path(__file__).parent / "public"
+app.mount("/static", StaticFiles(directory=str(PUBLIC_DIR)), name="static")
+
+
+# ─── Platform detection ───
+
+YOUTUBE_RE = re.compile(
+    r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([\w-]+)"
+)
+INSTAGRAM_RE = re.compile(
+    r"instagram\.com/(?:reels?|p|tv)/([\w-]+)"
+)
+
+
+def detect_platform(url: str) -> tuple[str, str]:
+    """Return (platform, video_id)."""
+    m = YOUTUBE_RE.search(url)
+    if m:
+        return "youtube", m.group(1)
+    m = INSTAGRAM_RE.search(url)
+    if m:
+        return "instagram", m.group(1)
+    return "unknown", ""
+
+
+# ─── yt-dlp helpers ───
+
+def run_ytdlp(args: list[str], timeout: int = 60) -> str:
+    """Run yt-dlp and return stdout."""
+    cmd = ["yt-dlp", "--no-warnings", "--no-playlist"] + args
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "yt-dlp failed")
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Request timed out")
+    except FileNotFoundError:
+        raise RuntimeError("yt-dlp not installed")
+
+
+def get_info(url: str) -> dict:
+    """Get video metadata without downloading."""
+    raw = run_ytdlp(["--dump-json", "--no-download", url])
+    return json.loads(raw)
+
+
+def format_duration(seconds: Optional[int]) -> str:
+    if not seconds:
+        return "0:00"
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def format_size(bytes_val: Optional[int]) -> str:
+    if not bytes_val:
+        return "Unknown"
+    for unit in ["B", "KB", "MB", "GB"]:
+        if bytes_val < 1024:
+            return f"{bytes_val:.1f} {unit}"
+        bytes_val /= 1024
+    return f"{bytes_val:.1f} TB"
+
+
+# ─── API Routes ───
+
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    return FileResponse(str(PUBLIC_DIR / "index.html"))
+
+
+@app.post("/api/info")
+async def api_info(request: Request):
+    """Get video metadata and available formats."""
+    body = await request.json()
+    url = body.get("url", "").strip()
+    if not url:
+        raise HTTPException(400, "URL required")
+
+    platform, video_id = detect_platform(url)
+    if platform == "unknown":
+        raise HTTPException(400, "Unsupported URL. Supported: YouTube, Instagram")
+
+    try:
+        info = await asyncio.to_thread(get_info, url)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+
+    # Build format list
+    formats = []
+    seen = set()
+
+    for f in info.get("formats", []):
+        fid = f.get("format_id", "")
+        vcodec = f.get("vcodec", "none")
+        acodec = f.get("acodec", "none")
+        ext = f.get("ext", "")
+        height = f.get("height")
+        width = f.get("width")
+        abr = f.get("abr")
+        vbr = f.get("vbr")
+        filesize = f.get("filesize") or f.get("filesize_approx")
+        format_note = f.get("format_note", "")
+
+        # Video+Audio
+        if vcodec != "none" and height:
+            label = f"{height}p"
+            key = f"video-{height}"
+            if key not in seen:
+                seen.add(key)
+                formats.append({
+                    "id": fid,
+                    "type": "video",
+                    "label": label,
+                    "quality": height,
+                    "ext": ext,
+                    "size": format_size(filesize),
+                    "filesize_bytes": filesize or 0,
+                })
+
+        # Audio only
+        elif vcodec == "none" and acodec != "none" and abr:
+            label = f"{int(abr)}kbps"
+            key = f"audio-{int(abr)}"
+            if key not in seen:
+                seen.add(key)
+                formats.append({
+                    "id": fid,
+                    "type": "audio",
+                    "label": label,
+                    "quality": int(abr),
+                    "ext": ext if ext in ("mp3", "m4a", "opus", "wav") else "mp3",
+                    "size": format_size(filesize),
+                    "filesize_bytes": filesize or 0,
+                })
+
+    # Sort: video by quality desc, audio by bitrate desc
+    video_formats = sorted(
+        [f for f in formats if f["type"] == "video"],
+        key=lambda x: x["quality"], reverse=True
+    )
+    audio_formats = sorted(
+        [f for f in formats if f["type"] == "audio"],
+        key=lambda x: x["quality"], reverse=True
+    )
+
+    # Deduplicate by quality label, keep best
+    def dedup(fmts):
+        best = {}
+        for f in fmts:
+            key = f["label"]
+            if key not in best or f["filesize_bytes"] > best[key]["filesize_bytes"]:
+                best[key] = f
+        return list(best.values())
+
+    return {
+        "platform": platform,
+        "title": info.get("title", "Untitled"),
+        "thumbnail": info.get("thumbnail", ""),
+        "duration": format_duration(info.get("duration")),
+        "uploader": info.get("uploader", ""),
+        "view_count": info.get("view_count", 0),
+        "url": url,
+        "video_formats": dedup(video_formats)[:6],
+        "audio_formats": dedup(audio_formats)[:4],
+    }
+
+
+@app.post("/api/download")
+async def api_download(request: Request):
+    """Stream download via yt-dlp."""
+    body = await request.json()
+    url = body.get("url", "").strip()
+    format_id = body.get("format_id", "")
+    mode = body.get("mode", "video")  # "video" or "audio"
+
+    if not url or not format_id:
+        raise HTTPException(400, "url and format_id required")
+
+    platform, _ = detect_platform(url)
+    if platform == "unknown":
+        raise HTTPException(400, "Unsupported URL")
+
+    # Create temp file
+    tmpdir = tempfile.mkdtemp(prefix="mediadl_")
+    output_tpl = os.path.join(tmpdir, "%(title).80s.%(ext)s")
+
+    if mode == "audio":
+        args = [
+            "-f", format_id,
+            "-x", "--audio-format", "mp3",
+            "--audio-quality", "0",
+            "-o", output_tpl,
+            url,
+        ]
+    else:
+        args = [
+            "-f", f"{format_id}+bestaudio/best",
+            "--merge-output-format", "mp4",
+            "-o", output_tpl,
+            url,
+        ]
+
+    try:
+        await asyncio.to_thread(run_ytdlp, args, timeout=300)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+
+    # Find downloaded file
+    files = list(Path(tmpdir).glob("*"))
+    if not files:
+        raise HTTPException(502, "Download failed — no output file")
+
+    filepath = files[0]
+    filename = filepath.name
+
+    # Stream file
+    def cleanup():
+        try:
+            filepath.unlink()
+            Path(tmpdir).rmdir()
+        except:
+            pass
+
+    return FileResponse(
+        path=str(filepath),
+        filename=filename,
+        media_type="application/octet-stream",
+        background=cleanup,
+    )
+
+
+# ─── Health check ───
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "service": "mediadl"}
