@@ -120,6 +120,39 @@
     <!-- Error -->
     <div id="error-msg" class="error-msg hidden"></div>
 
+    <!-- Cookie Section -->
+    <section class="cookie-section" id="cookie-section">
+      <details class="cookie-details">
+        <summary class="cookie-summary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <span>YouTube Cookies</span>
+          <span id="cookie-status" class="cookie-status"></span>
+        </summary>
+        <div class="cookie-body">
+          <p class="cookie-hint">YouTube blocks downloads from servers. Upload your browser cookies to bypass this.</p>
+          <ol class="cookie-steps">
+            <li>Install <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank">Get cookies.txt LOCALLY</a> extension</li>
+            <li>Go to <a href="https://www.youtube.com" target="_blank">youtube.com</a> and make sure you're logged in</li>
+            <li>Click the extension icon → "Export" → saves cookies.txt</li>
+            <li>Upload the file here</li>
+          </ol>
+          <div class="cookie-upload">
+            <input type="file" id="cookie-file" accept=".txt" hidden>
+            <button class="btn btn-secondary" id="btn-cookie-upload" onclick="document.getElementById('cookie-file').click()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Upload cookies.txt
+            </button>
+            <button class="btn btn-ghost hidden" id="btn-cookie-delete">Remove cookies</button>
+          </div>
+          <p id="cookie-msg" class="cookie-msg hidden"></p>
+        </div>
+      </details>
+    </section>
+
     <!-- Footer -->
     <footer class="footer">
       <p>No data stored • Downloads proxied via yt-dlp • For personal use only</p>

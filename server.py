@@ -55,9 +55,14 @@ def detect_platform(url: str) -> tuple[str, str]:
 
 # ─── yt-dlp helpers ───
 
+COOKIES_FILE = Path(__file__).parent / "cookies.txt"
+
 def run_ytdlp(args: list[str], timeout: int = 60) -> str:
     """Run yt-dlp and return stdout."""
-    cmd = ["yt-dlp", "--no-warnings", "--no-playlist"] + args
+    cmd = ["yt-dlp", "--no-warnings", "--no-playlist"]
+    if COOKIES_FILE.exists():
+        cmd += ["--cookies", str(COOKIES_FILE)]
+    cmd += args
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout
@@ -275,4 +280,35 @@ async def api_download(request: Request):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "mediadl"}
+    has_cookies = COOKIES_FILE.exists()
+    return {"status": "ok", "service": "mediadl", "has_cookies": has_cookies}
+
+
+# ─── Cookie management ───
+
+from fastapi import UploadFile, File
+
+@app.post("/api/cookies")
+async def upload_cookies(file: UploadFile = File(...)):
+    """Upload YouTube cookies.txt (Netscape format)."""
+    content = await file.read()
+    # Validate basic format
+    text = content.decode("utf-8", errors="ignore")
+    if "youtube.com" not in text.lower() and "# Netscape" not in text:
+        raise HTTPException(400, "Invalid cookies file. Export from browser in Netscape format.")
+    COOKIES_FILE.write_bytes(content)
+    return {"status": "ok", "message": "Cookies uploaded successfully"}
+
+
+@app.get("/api/cookies/status")
+async def cookies_status():
+    """Check if cookies are configured."""
+    return {"has_cookies": COOKIES_FILE.exists()}
+
+
+@app.delete("/api/cookies")
+async def delete_cookies():
+    """Remove stored cookies."""
+    if COOKIES_FILE.exists():
+        COOKIES_FILE.unlink()
+    return {"status": "ok", "message": "Cookies removed"}

@@ -235,3 +235,68 @@ urlInput.addEventListener('focus', async () => {
     }
   } catch {}
 });
+
+// ─── Cookie management ───
+const cookieFile = document.getElementById('cookie-file');
+const cookieMsg = document.getElementById('cookie-msg');
+const cookieStatus = document.getElementById('cookie-status');
+const btnCookieDelete = document.getElementById('btn-cookie-delete');
+
+// Check cookie status on load
+async function checkCookieStatus() {
+  try {
+    const resp = await fetch(`${API}/api/cookies/status`);
+    const data = await resp.json();
+    if (data.has_cookies) {
+      cookieStatus.textContent = 'Active';
+      cookieStatus.className = 'cookie-status active';
+      btnCookieDelete.classList.remove('hidden');
+    } else {
+      cookieStatus.textContent = 'Not set';
+      cookieStatus.className = 'cookie-status inactive';
+      btnCookieDelete.classList.add('hidden');
+    }
+  } catch {}
+}
+checkCookieStatus();
+
+// Upload cookies
+cookieFile.addEventListener('change', async () => {
+  const file = cookieFile.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const resp = await fetch(`${API}/api/cookies`, { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (resp.ok) {
+      showCookieMsg('Cookies uploaded! YouTube downloads should work now.', 'success');
+      checkCookieStatus();
+    } else {
+      showCookieMsg(data.detail || 'Upload failed', 'error');
+    }
+  } catch (e) {
+    showCookieMsg('Upload failed: ' + e.message, 'error');
+  }
+  cookieFile.value = '';
+});
+
+// Delete cookies
+btnCookieDelete.addEventListener('click', async () => {
+  try {
+    await fetch(`${API}/api/cookies`, { method: 'DELETE' });
+    showCookieMsg('Cookies removed', 'success');
+    checkCookieStatus();
+  } catch (e) {
+    showCookieMsg('Failed: ' + e.message, 'error');
+  }
+});
+
+function showCookieMsg(text, type) {
+  cookieMsg.textContent = text;
+  cookieMsg.className = `cookie-msg ${type}`;
+  cookieMsg.classList.remove('hidden');
+  setTimeout(() => cookieMsg.classList.add('hidden'), 5000);
+}
