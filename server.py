@@ -56,12 +56,68 @@ def detect_platform(url: str) -> tuple[str, str]:
 # ─── yt-dlp helpers ───
 
 COOKIES_FILE = Path(__file__).parent / "cookies.txt"
+BGUTIL_SERVER = Path.home() / "bgutil-ytdlp-pot-provider" / "server"
+PO_TOKEN_CACHE: dict = {}  # Cache PO tokens to avoid regenerating per request
+
+
+def generate_po_token() -> tuple[str, str] | None:
+    """Generate PO token using bgutil. Returns (po_token, visitor_data) or None."""
+    script = BGUTIL_SERVER / "build" / "generate_once.js"
+    if not script.exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["node", str(script)],
+            capture_output=True, text=True, timeout=30,
+            cwd=str(BGUTIL_SERVER),
+        )
+        if result.returncode != 0:
+            return None
+        # Parse JSON from last line of stdout
+        for line in reversed(result.stdout.strip().split("\n")):
+            line = line.strip()
+            if line.startswith("{"):
+                data = json.loads(line)
+                po = data.get("poToken", "")
+                vis = data.get("contentBinding", "")
+                if po and vis:
+                    return po, vis
+        return None
+    except Exception:
+        return None
+
+
+def get_po_args() -> list[str]:
+    """Get PO token args, with caching."""
+    cached = PO_TOKEN_CACHE.get("po")
+    if cached:
+        po, vis, ts = cached
+        import time
+        if time.time() - ts < 300:  # 5 min cache
+            return [
+                "--js-runtimes", "node",
+                "--extractor-args", f"youtube:player-client=web;po_token=web.gvs+{po}",
+                "--extractor-args", f"youtube:visitor_data={vis}",
+            ]
+    token = generate_po_token()
+    if token:
+        po, vis = token
+        import time
+        PO_TOKEN_CACHE["po"] = (po, vis, time.time())
+        return [
+            "--js-runtimes", "node",
+            "--extractor-args", f"youtube:player-client=web;po_token=web.gvs+{po}",
+            "--extractor-args", f"youtube:visitor_data={vis}",
+        ]
+    return ["--js-runtimes", "node"]
+
 
 def run_ytdlp(args: list[str], timeout: int = 60) -> str:
     """Run yt-dlp and return stdout."""
     cmd = ["yt-dlp", "--no-warnings", "--no-playlist"]
     if COOKIES_FILE.exists():
         cmd += ["--cookies", str(COOKIES_FILE)]
+    cmd += get_po_args()
     cmd += args
     try:
         result = subprocess.run(
