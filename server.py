@@ -119,7 +119,13 @@ async def api_info(request: Request):
     try:
         info = await asyncio.to_thread(get_info, url)
     except RuntimeError as e:
-        raise HTTPException(502, str(e))
+        msg = str(e)
+        # Clean up yt-dlp error messages
+        if "Sign in to confirm" in msg or "bot" in msg.lower():
+            msg = "YouTube requires sign-in for this video. Try another video or use cookies."
+        elif "ERROR:" in msg:
+            msg = msg.split("ERROR:")[-1].strip()[:200]
+        raise HTTPException(422, msg)
 
     # Build format list
     formats = []
@@ -239,12 +245,12 @@ async def api_download(request: Request):
     try:
         await asyncio.to_thread(run_ytdlp, args, timeout=300)
     except RuntimeError as e:
-        raise HTTPException(502, str(e))
+        raise HTTPException(422, str(e))
 
     # Find downloaded file
     files = list(Path(tmpdir).glob("*"))
     if not files:
-        raise HTTPException(502, "Download failed — no output file")
+        raise HTTPException(422, "Download failed — no output file")
 
     filepath = files[0]
     filename = filepath.name
