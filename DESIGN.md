@@ -1,121 +1,112 @@
 ---
-version: alpha
+version: "3.0"
 name: MediaDL
-description: Media downloader UI. Emerald accent on dark surfaces. Clean, fast, single-purpose. Supports YouTube + Instagram.
+description: Media downloader UI. Pure black background with subtle green radial glow, noise texture. Near-black surfaces with #1a1a1a borders. Clean, minimal, dark.
 colors:
-  primary: "#10b981"
-  primary-hover: "#34d399"
+  primary: "#1DB984"
+  primary-hover: "#22d39a"
+  primary-glow: "rgba(29, 185, 132, 0.25)"
   primary-muted: "#0a2e1f"
-  secondary: "#6ee7b7"
-  surface-0: "#09090b"
-  surface-1: "#111114"
-  surface-2: "#18181b"
-  surface-3: "#27272a"
-  border: "#2e2e33"
-  border-hover: "#3f3f46"
-  text-primary: "#fafafa"
-  text-secondary: "#a1a1aa"
-  text-tertiary: "#52525b"
+  surface-0: "#050708"
+  surface-1: "#0a0c0d"
+  surface-2: "#111315"
+  surface-3: "#1a1c1e"
+  surface-4: "#242628"
+  border: "#1a1a1a"
+  border-hover: "#2a2a2a"
+  border-active: "rgba(29, 185, 132, 0.3)"
+  text-primary: "#ffffff"
+  text-secondary: "#888888"
+  text-tertiary: "#555555"
+  youtube: "#FF0000"
+  youtube-bg: "#2A1212"
+  youtube-border: "#422020"
+  instagram: "#E4405F"
+  instagram-bg: "#24141E"
+  instagram-border: "#33202C"
   success: "#22c55e"
   danger: "#ef4444"
   warning: "#eab308"
-  youtube: "#ff0000"
-  instagram: "#e1306c"
-  light-surface-0: "#fafafa"
-  light-surface-1: "#ffffff"
-  light-surface-2: "#f4f4f5"
-  light-surface-3: "#e4e4e7"
-  light-border: "#d4d4d8"
-  light-border-hover: "#a1a1aa"
-  light-text-primary: "#09090b"
-  light-text-secondary: "#52525b"
-  light-text-tertiary: "#a1a1aa"
-  light-primary-muted: "#ecfdf5"
 typography:
-  h1:
+  logo:
     fontFamily: Inter
-    fontSize: 1.75rem
-    fontWeight: 700
-    lineHeight: 1.2
-    letterSpacing: "-0.025em"
+    fontSize: 2rem
+    fontWeight: 800-900
+    letterSpacing: "-0.02em"
   h2:
     fontFamily: Inter
-    fontSize: 1.25rem
-    fontWeight: 600
-    lineHeight: 1.3
-    letterSpacing: "-0.015em"
+    fontSize: 1rem
+    fontWeight: 700
+    lineHeight: 1.4
   body:
     fontFamily: Inter
-    fontSize: 0.875rem
+    fontSize: 0.9375rem
     fontWeight: 400
     lineHeight: 1.6
   caption:
     fontFamily: Inter
-    fontSize: 0.75rem
+    fontSize: 0.6875rem
     fontWeight: 400
     lineHeight: 1.4
   mono:
-    fontFamily: "JetBrains Mono, SF Mono, monospace"
-    fontSize: 0.8125rem
-    fontWeight: 500
-    lineHeight: 1.4
+    fontFamily: "JetBrains Mono, SF Mono, Fira Code, monospace"
 rounded:
   sm: 8px
-  md: 12px
+  md: 10px
   lg: 16px
-  xl: 20px
   full: 9999px
-spacing:
-  xs: 4px
-  sm: 8px
-  md: 16px
-  lg: 24px
-  xl: 32px
-  "2xl": 48px
 components:
-  card:
-    backgroundColor: "{colors.surface-2}"
-    rounded: "{rounded.lg}"
-    padding: 24px
+  input:
+    backgroundColor: "transparent"
+    rounded: "{rounded.sm}"
+    padding: 13px 14px
+    border: "1px solid {colors.border}"
   button-primary:
     backgroundColor: "{colors.primary}"
     textColor: "#ffffff"
-    rounded: "{rounded.md}"
-    padding: 12px
-  input:
-    backgroundColor: "{colors.surface-3}"
-    rounded: "{rounded.md}"
-    padding: 14px 16px
+    rounded: "{rounded.sm}"
+    padding: 0 24px
+  chip:
+    rounded: "{rounded.full}"
+    padding: 6px 16px
 ---
 
 ## Overview
 
-MediaDL uses **emerald green** as the accent — fresh, fast, "download" energy. Dark default, light mode via separate token set. Single-page app: paste URL → see metadata → pick format → download. No accounts, no tracking.
+MediaDL v3 — **pure black** background (#050708) with subtle green radial glow center. Logo is "Media" (white) + "DOWNLOADER" (green, all caps, 900 weight). Near-black surfaces (#111315) with #1a1a1a borders. Minimal, dark, clean.
+
+## Background
+
+Single radial gradient (green, 6% opacity, 60%×50% ellipse at 50% 40%). Fine noise texture overlay at 2.5% opacity. No floating orbs, no animations — static and clean.
 
 ## Colors
 
-- **Primary (#10b981):** Emerald — download buttons, active states, progress bars.
-- **YouTube (#ff0000):** Brand color for YouTube platform badge.
-- **Instagram (#e1306c):** Brand color for Instagram platform badge.
-- **Surface hierarchy:** Four levels, same as TempMail ecosystem.
+- **Primary (#1DB984):** Logo accent, fetch button, download buttons, active tabs, focus rings, icon glow.
+- **YouTube (#FF0000):** Chip text + icon. Chip bg: #2A1212, border: #422020.
+- **Instagram (#E4405F):** Chip text + icon. Chip bg: #24141E, border: #33202C.
+- **Borders:** #1a1a1a — very dark, barely visible.
 
 ## Typography
 
-Inter UI text. JetBrains Mono for URLs and file sizes.
+Inter for all UI. JetBrains Mono for sizes, stats, durations. Logo: 2rem, 800 weight for "Media", 900 weight for "DOWNLOADER".
 
 ## Layout
 
-Single-column, 720px max-width. Hero input at top, results card below. Mobile-first.
+Single-column, 600px max-width, center-aligned. Header centered with logo + tagline, then input row, then chips. Footer at bottom.
 
 ## Components
 
-- **card:** Rounded 16px, surface-2, 1px border.
-- **button-primary:** Solid emerald, white text. Hover brightens.
-- **input:** Large surface-3 input with emerald focus ring.
+- **input-shell:** Transparent bg, #1a1a1a border, 8px radius. Paste icon inside right edge.
+- **btn-fetch:** Solid green, 8px radius, green glow shadow.
+- **chip:** Pill-shaped, colored bg+border per platform. 6px 16px padding.
+- **format-item:** Clean row, hover shows bg + border.
+- **skeleton:** Shimmer loading placeholder.
 
 ## Do's and Don'ts
 
-- **Do** show platform badges (YouTube red, Instagram pink) for instant recognition.
-- **Do** show file size estimates before download.
-- **Don't** auto-download — always require user click.
-- **Don't** store any user data or URLs.
+- **Do** keep pure black (#050708) base — no gray surfaces.
+- **Do** keep borders very dark (#1a1a1a).
+- **Do** use green glow sparingly (button shadow, icon glow).
+- **Don't** use floating orb animations — static background.
+- **Don't** auto-download — always require explicit click.
+- **Don't** store user data.

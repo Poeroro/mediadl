@@ -3,22 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MediaDL — Download YouTube & Instagram</title>
+  <title>MediaDownloader — YouTube & Instagram Downloader</title>
   <meta name="description" content="Download YouTube videos/audio and Instagram reels. Free, fast, no signup.">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬇</text></svg>">
+  <link rel="stylesheet" href="/static/style.css?v=5">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="bg-gradient"></div>
+  <!-- Background glow -->
+  <div class="bg-glow"></div>
+  <div class="bg-noise"></div>
 
   <!-- Theme Toggle -->
   <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
-    <svg class="theme-icon dark-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <svg class="theme-icon dark-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
     </svg>
-    <svg class="theme-icon light-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <svg class="theme-icon light-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
       <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
     </svg>
   </button>
@@ -26,57 +29,74 @@
   <div class="container">
     <!-- Header -->
     <header class="header">
-      <div class="logo">
-        <div class="logo-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="logo-mark">
+        <div class="logo-icon-wrap">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
         </div>
-        <div>
-          <h1>MediaDL</h1>
-          <p class="tagline">Download YouTube & Instagram — no signup, no tracking</p>
-        </div>
+        <h1 class="logo-text">Media<span class="logo-accent">DOWNLOADER</span></h1>
       </div>
+      <p class="tagline">YouTube & Instagram downloader — free, fast, no tracking</p>
     </header>
 
-    <!-- URL Input -->
+    <!-- Hero Input -->
     <section class="hero-card">
-      <div class="platform-hint">
-        <span class="badge badge-youtube">
+      <form id="url-form" class="input-wrap">
+        <div class="input-shell" id="input-shell">
+          <div class="platform-detect" id="platform-detect"></div>
+          <input
+            type="url"
+            id="url-input"
+            class="url-input"
+            placeholder="Paste a YouTube or Instagram URL..."
+            spellcheck="false"
+            autocomplete="off"
+            required
+          >
+          <button type="button" id="btn-paste" class="btn-paste" title="Paste from clipboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+          </button>
+        </div>
+        <button type="submit" id="btn-fetch" class="btn-fetch">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <span>Fetch</span>
+        </button>
+      </form>
+
+      <!-- Platform chips -->
+      <div class="platform-chips">
+        <span class="chip chip-yt">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
           YouTube
         </span>
-        <span class="badge badge-instagram">
+        <span class="chip chip-ig">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
           Instagram
         </span>
       </div>
-
-      <form id="url-form" class="input-group">
-        <input
-          type="url"
-          id="url-input"
-          class="url-input"
-          placeholder="Paste YouTube or Instagram URL here..."
-          spellcheck="false"
-          autocomplete="off"
-          required
-        >
-        <button type="submit" id="btn-fetch" class="btn btn-primary">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          Fetch
-        </button>
-      </form>
     </section>
 
-    <!-- Loading -->
-    <div id="loading" class="loading hidden">
-      <div class="spinner"></div>
-      <span>Fetching info...</span>
+    <!-- Loading skeleton -->
+    <div id="loading" class="loading-section hidden">
+      <div class="skeleton-card">
+        <div class="skeleton skeleton-thumb"></div>
+        <div class="skeleton-body">
+          <div class="skeleton skeleton-line short"></div>
+          <div class="skeleton skeleton-line"></div>
+          <div class="skeleton skeleton-line medium"></div>
+        </div>
+      </div>
+      <div class="loading-hint">
+        <div class="pulse-dot"></div>
+        <span>Fetching video info...</span>
+      </div>
     </div>
 
     <!-- Results -->
@@ -87,25 +107,30 @@
           <img id="thumb-img" src="" alt="">
           <span id="duration-badge" class="duration-badge"></span>
         </div>
-        <div class="info-meta">
-          <span id="platform-badge" class="platform-badge"></span>
-          <h2 id="video-title" class="video-title"></h2>
-          <p id="video-uploader" class="video-uploader"></p>
-          <p id="video-stats" class="video-stats"></p>
+        <div class="info-body">
+          <div class="info-top">
+            <span id="platform-badge" class="platform-badge"></span>
+            <h2 id="video-title" class="video-title"></h2>
+          </div>
+          <div class="info-meta-row">
+            <span id="video-uploader" class="video-uploader"></span>
+            <span class="meta-dot">·</span>
+            <span id="video-stats" class="video-stats"></span>
+          </div>
         </div>
       </div>
 
-      <!-- Format Tabs -->
+      <!-- Format Section -->
       <div class="format-section">
         <div class="tab-bar">
           <button class="tab active" data-tab="video">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
             </svg>
             Video
           </button>
           <button class="tab" data-tab="audio">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
             </svg>
             Audio
@@ -121,10 +146,10 @@
     <div id="error-msg" class="error-msg hidden"></div>
 
     <!-- Cookie Section -->
-    <section class="cookie-section" id="cookie-section">
+    <section class="cookie-section hidden" id="cookie-section">
       <details class="cookie-details">
         <summary class="cookie-summary">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>
           <span>YouTube Cookies</span>
@@ -141,7 +166,7 @@
           <div class="cookie-upload">
             <input type="file" id="cookie-file" accept=".txt" hidden>
             <button class="btn btn-secondary" id="btn-cookie-upload" onclick="document.getElementById('cookie-file').click()">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
               </svg>
               Upload cookies.txt
@@ -155,13 +180,13 @@
 
     <!-- Footer -->
     <footer class="footer">
-      <p>No data stored • Downloads proxied via yt-dlp • For personal use only</p>
+      <p>No data stored • Vibe Coding Powered by yt-dlp & cobalt • ©Muhashi</p>
     </footer>
   </div>
 
   <!-- Toast -->
   <div id="toast" class="toast"></div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=5"></script>
 </body>
 </html>

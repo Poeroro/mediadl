@@ -4,3 +4,5 @@ __pycache__/
 /tmp/
 /media/
 *.log
+cookies.txt
+.cookies-source.txt

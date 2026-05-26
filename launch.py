@@ -1,6 +1,7 @@
 import subprocess, sys, os
+from pathlib import Path
 
-os.chdir("/home/ubuntu/mediadl")
+os.chdir(Path(__file__).parent)
 p = subprocess.Popen(
     [sys.executable, "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8181"],
     stdout=open("/tmp/mediadl.log", "w"),
