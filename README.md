@@ -2,7 +2,7 @@
 
 YouTube & Instagram media downloader — free, fast, no tracking.
 
-**Live:** [dl.yourdomain.com](https://dl.yourdomain.com)
+**Live:** [dl.tempmeil.xyz](https://dl.tempmeil.xyz)
 
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)
@@ -44,12 +44,12 @@ DELETE /api/cookies     — remove uploaded cookies
 
 ```bash
 # Fetch video info
-curl -X POST https://dl.yourdomain.com/api/info \
+curl -X POST https://dl.tempmeil.xyz/api/info \
   -H "Content-Type: application/json" \
   -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
 
 # Download (streams the file)
-curl -X POST https://dl.yourdomain.com/api/download \
+curl -X POST https://dl.tempmeil.xyz/api/download \
   -H "Content-Type: application/json" \
   -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "format_id": "best"}' \
   -o video.mp4
@@ -67,7 +67,7 @@ curl -X POST https://dl.yourdomain.com/api/download \
 ### Install
 
 ```bash
-git clone git@github.com:yourusername/mediadl.git
+git clone git@github.com:Poeroro/mediadl.git
 cd mediadl
 
 pip install fastapi uvicorn
@@ -87,7 +87,7 @@ sudo systemctl enable --now mediadl
 
 ```nginx
 server {
-    server_name dl.yourdomain.com;
+    server_name dl.tempmeil.xyz;
 
     location / {
         proxy_pass http://127.0.0.1:8181;
