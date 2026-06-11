@@ -6,15 +6,15 @@ YouTube & Instagram media downloader — free, fast, no tracking.
 
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)
+![Cobalt](https://img.shields.io/badge/Cobalt-11.x-FF6B35?logo=cobalt&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Features
 
-- **YouTube** — download video (up to 4K) or audio-only, format picker with file size preview
-- **Instagram** — download Reels, Posts, and TV via cobalt backend
+- **YouTube** — download video (up to 4K) or audio-only via [Cobalt](https://github.com/imputnet/cobalt)
+- **Instagram** — download Reels, Posts, and TV via Cobalt
+- **Bot detection bypass** — Cobalt self-hosted with auto PO token (yt-session-generator)
 - **No signup** — paste URL, pick format, download
-- **Cookie upload** — bypass YouTube bot detection with your browser cookies
-- **Auto PO token** — bgutil integration for YouTube PO token generation
 - **Dark/Light theme** — toggle with one click
 - **Mobile-first** — responsive UI, works on any device
 - **No data stored** — zero logging, zero tracking
@@ -24,19 +24,20 @@ YouTube & Instagram media downloader — free, fast, no tracking.
 | Layer | Tech |
 |-------|------|
 | Backend | FastAPI + uvicorn |
-| Download engine | yt-dlp (YouTube), cobalt (Instagram) |
+| Download engine | [Cobalt](https://github.com/imputnet/cobalt) self-hosted (YouTube + Instagram) |
+| PO token | yt-session-generator (auto, no manual cookies) |
 | Frontend | Vanilla HTML/CSS/JS |
 | Reverse proxy | nginx |
-| Deployment | systemd service |
+| Deployment | systemd + Docker Compose |
 
 ## API
 
 ```
 POST /api/info          — get video metadata + available formats
 POST /api/download      — stream download (video or audio)
-GET  /api/health        — health check
-POST /api/cookies       — upload cookies.txt (multipart form)
-GET  /api/cookies/status — check if cookies are active
+GET  /api/health        — health check (includes cobalt status)
+POST /api/cookies       — upload cookies.txt (optional, multipart form)
+GET  /api/cookies/status — check cookie status
 DELETE /api/cookies     — remove uploaded cookies
 ```
 
@@ -46,13 +47,19 @@ DELETE /api/cookies     — remove uploaded cookies
 # Fetch video info
 curl -X POST https://Yourdomain.com/api/info \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://www.youtube.com/watch?v=......."}'
+  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
 
-# Download (streams the file)
+# Download video (720p)
 curl -X POST https://Yourdomain.com/api/download \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://www.youtube.com/watch?v=........", "format_id": "best"}' \
+  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "mode": "video", "format_id": "720"}' \
   -o video.mp4
+
+# Download audio (MP3 320kbps)
+curl -X POST https://Yourdomain.com/api/download \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "mode": "audio", "format_id": "320"}' \
+  -o audio.mp3
 ```
 
 ## Setup
@@ -60,30 +67,38 @@ curl -X POST https://Yourdomain.com/api/download \
 ### Requirements
 
 - Python 3.12+
-- yt-dlp
+- Docker + Docker Compose (for Cobalt)
 - ffmpeg (for audio extraction)
-- Node.js (for PO token via bgutil)
 
-### Install
+### 1. Start Cobalt
 
 ```bash
-git clone git@github.com:Poeroro/mediadl.git
-cd mediadl
+cd cobalt/
+docker compose up -d
+```
 
+This starts:
+- `cobalt` — API server on `127.0.0.1:9000`
+- `yt-session-generator` — auto PO token for YouTube
+- `cobalt-watchtower` — auto-update Cobalt images
+
+### 2. Start MediaDL
+
+```bash
+cd mediadl/
 pip install fastapi uvicorn
 
-# Run
 python -m uvicorn server:app --host 0.0.0.0 --port 8181
 ```
 
-### Systemd (production)
+### 3. Systemd (production)
 
 ```bash
 sudo cp mediadl.service /etc/systemd/system/
 sudo systemctl enable --now mediadl
 ```
 
-### Nginx
+### 4. Nginx
 
 ```nginx
 server {
@@ -104,30 +119,27 @@ server {
 
 ```
 mediadl/
-├── server.py           # FastAPI backend
-├── launch.py           # Launcher script
-├── cookies.txt         # YouTube cookies (gitignored)
-├── .cookies-source.txt # Cookie source metadata
+├── server.py           # FastAPI backend (Cobalt-powered)
+├── start.sh            # Launcher script
+├── launch.py           # Process launcher
 ├── DESIGN.md           # UI design tokens & spec
 ├── public/
 │   ├── index.html      # Frontend
 │   ├── style.css       # Styles (dark/light theme)
 │   └── app.js          # Client-side logic
 └── README.md
+
+cobalt/
+└── docker-compose.yml  # Cobalt + yt-session-generator + Watchtower
 ```
 
-## YouTube Cookie Setup
+## Cobalt Quality Presets
 
-YouTube blocks server-side downloads. To bypass:
+**Video:** Best Available, 2160p (4K), 1440p (2K), 1080p, 720p, 480p
 
-1. Install [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) extension
-2. Go to [youtube.com](https://youtube.com), make sure you're logged in
-3. Click extension icon → Export → saves `cookies.txt`
-4. Upload via the UI (click "YouTube Cookies" section) or replace `cookies.txt` in project root
+**Audio:** MP3 320kbps, MP3 256kbps, MP3 128kbps
 
-## Design
-
-Dark-first UI. Pure black (#050708) background with subtle green radial glow. See [DESIGN.md](DESIGN.md) for full spec.
+Codec: h264 (best compatibility) + Better Audio enabled.
 
 ## License
 
