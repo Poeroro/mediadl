@@ -1,3 +1,3 @@
 #!/bin/bash
-cd /home/ubuntu/mediadl
+cd "$(dirname "$0")"
 exec python3 -m uvicorn server:app --host 0.0.0.0 --port 8181 2>&1
