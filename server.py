@@ -1,19 +1,17 @@
 import logging
 """
-MediaDL — FastAPI backend with yt-dlp
+MediaDL — FastAPI backend with Cobalt
 YouTube + Instagram media downloader
 """
 
 import asyncio
 import json
-import os
 import re
-import subprocess
-import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +29,41 @@ app.add_middleware(
 # Serve static frontend
 PUBLIC_DIR = Path(__file__).parent / "public"
 app.mount("/static", StaticFiles(directory=str(PUBLIC_DIR)), name="static")
+
+COBALT_URL = "http://localhost:9000"
+
+# ─── Cobalt helpers ───
+
+
+def cobalt_request(payload: dict, timeout: int = 60) -> dict:
+    """Call local Cobalt API."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        COBALT_URL,
+        data=data,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        try:
+            return json.loads(body)
+        except Exception:
+            raise RuntimeError(f"Cobalt HTTP {e.code}: {body[:200]}")
+
+
+def cobalt_stream(url: str, timeout: int = 300):
+    """Generator: stream bytes from a Cobalt tunnel/redirect URL."""
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        while True:
+            chunk = resp.read(65536)
+            if not chunk:
+                break
+            yield chunk
 
 
 # ─── Platform detection ───
@@ -54,154 +87,93 @@ def detect_platform(url: str) -> tuple[str, str]:
     return "unknown", ""
 
 
-# ─── yt-dlp helpers ───
-
-COOKIES_FILE = Path(__file__).parent / "cookies.txt"
-COOKIES_SOURCE = Path(__file__).parent / ".cookies-source.txt"
-BGUTIL_SERVER = Path.home() / "bgutil-ytdlp-pot-provider" / "server"
-PO_TOKEN_CACHE: dict = {}  # Cache PO tokens to avoid regenerating
+# ─── Format helpers ───
 
 
-def restore_cookies():
-    """Restore cookies from protected source before yt-dlp run (yt-dlp overwrites cookies.txt)."""
-    if COOKIES_SOURCE.exists():
-        import shutil
-        shutil.copy(str(COOKIES_SOURCE), str(COOKIES_FILE))
-        COOKIES_FILE.chmod(0o644)
+def format_size(bytes_val: Optional[int]) -> str:
+    if not bytes_val:
+        return "Unknown"
+    for unit in ["B", "KB", "MB", "GB"]:
+        if bytes_val < 1024:
+            return f"{bytes_val:.1f} {unit}"
+        bytes_val /= 1024
+    return f"{bytes_val:.1f} TB"
 
 
-
-def get_cookies_for_url(url: str) -> Path | None:
-    """Pick the right cookies file based on URL platform. Instagram uses cobalt (no cookies)."""
-    platform, _ = detect_platform(url)
-    if platform == "instagram":
-        return None  # Instagram handled by cobalt, no cookies needed
-    if COOKIES_SOURCE.exists():
-        restore_cookies()
-        return COOKIES_FILE
-    return None
+def format_duration(seconds: Optional[int]) -> str:
+    if not seconds:
+        return "0:00"
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
 
 
-def generate_po_token() -> tuple[str, str] | None:
-    """Generate PO token using bgutil. Returns (po_token, visitor_data) or None."""
-    script = BGUTIL_SERVER / "build" / "generate_once.js"
-    if not script.exists():
-        return None
-    try:
-        result = subprocess.run(
-            ["node", str(script)],
-            capture_output=True, text=True, timeout=30,
-            cwd=str(BGUTIL_SERVER),
-        )
-        if result.returncode != 0:
-            return None
-        # Parse JSON from last line of stdout
-        for line in reversed(result.stdout.strip().split("\n")):
-            line = line.strip()
-            if line.startswith("{"):
-                data = json.loads(line)
-                po = data.get("poToken", "")
-                vis = data.get("contentBinding", "")
-                if po and vis:
-                    return po, vis
-        return None
-    except Exception:
-        return None
+# YouTube quality presets (cobalt-driven, no dynamic format detection)
+YT_VIDEO_PRESETS = [
+    {"id": "max",  "type": "video", "label": "Best Available", "quality": 9999, "ext": "mp4", "size": "Unknown", "filesize_bytes": 0},
+    {"id": "2160", "type": "video", "label": "2160p (4K)",     "quality": 2160, "ext": "mp4", "size": "Unknown", "filesize_bytes": 0},
+    {"id": "1440", "type": "video", "label": "1440p (2K)",     "quality": 1440, "ext": "mp4", "size": "Unknown", "filesize_bytes": 0},
+    {"id": "1080", "type": "video", "label": "1080p",          "quality": 1080, "ext": "mp4", "size": "Unknown", "filesize_bytes": 0},
+    {"id": "720",  "type": "video", "label": "720p",           "quality": 720,  "ext": "mp4", "size": "Unknown", "filesize_bytes": 0},
+    {"id": "480",  "type": "video", "label": "480p",           "quality": 480,  "ext": "mp4", "size": "Unknown", "filesize_bytes": 0},
+]
 
-def get_ytdlp_base_args() -> list[str]:
-    """Get base yt-dlp args: JS runtime + remote components + optional PO token."""
-    base = ["--js-runtimes", "node", "--remote-components", "ejs:github"]
-    if COOKIES_FILE.exists():
-        # Cookies + ejs for signature solving
-        return base
-    # No cookies — try PO token as fallback
-    cached = PO_TOKEN_CACHE.get("po")
-    if cached:
-        po, vis, ts = cached
-        import time
-        if time.time() - ts < 300:  # 5 min cache
-            return base + [
-                "--extractor-args", f"youtube:player-client=web;po_token=web.gvs+{po}",
-                "--extractor-args", f"youtube:visitor_data={vis}",
-            ]
-    token = generate_po_token()
-    if token:
-        po, vis = token
-        import time
-        PO_TOKEN_CACHE["po"] = (po, vis, time.time())
-        return base + [
-            "--extractor-args", f"youtube:player-client=web;po_token=web.gvs+{po}",
-            "--extractor-args", f"youtube:visitor_data={vis}",
-        ]
-    return base
+YT_AUDIO_PRESETS = [
+    {"id": "320", "type": "audio", "label": "MP3 320kbps", "quality": 320, "ext": "mp3", "size": "Unknown", "filesize_bytes": 0},
+    {"id": "256", "type": "audio", "label": "MP3 256kbps", "quality": 256, "ext": "mp3", "size": "Unknown", "filesize_bytes": 0},
+    {"id": "128", "type": "audio", "label": "MP3 128kbps", "quality": 128, "ext": "mp3", "size": "Unknown", "filesize_bytes": 0},
+]
 
 
-def run_ytdlp(args: list[str], timeout: int = 60) -> str:
-    """Run yt-dlp and return stdout."""
-    # Extract URL from args to determine cookies
-    url = ""
-    for a in args:
-        if a.startswith("http"):
-            url = a
-            break
-    cookies = get_cookies_for_url(url) if url else None
-
-    cmd = ["yt-dlp", "--no-warnings", "--no-playlist", "--ignore-config"]
-    if cookies:
-        cmd += ["--cookies", str(cookies)]
-    cmd += get_ytdlp_base_args()
-    cmd += args
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout
-        )
-        if result.returncode != 0:
-            err_msg = result.stderr.strip() or "yt-dlp failed"
-            logging.error(f"yt-dlp failed: cmd={cmd}, stderr={err_msg[:500]}")
-            raise RuntimeError(err_msg)
-        return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("Request timed out")
-    except FileNotFoundError:
-        raise RuntimeError("yt-dlp not installed")
+# ─── Info fetchers ───
 
 
-COBALT_URL = "http://localhost:9000"
+def get_yt_info(url: str) -> dict:
+    """Get YouTube metadata via oEmbed; formats are static presets."""
+    m = YOUTUBE_RE.search(url)
+    if not m:
+        raise RuntimeError("Invalid YouTube URL")
+    vid = m.group(1)
 
-
-def cobalt_request(url: str) -> dict:
-    """Call local cobalt API for IG/TikTok/other supported platforms."""
-    import urllib.request
-    payload = json.dumps({"url": url}).encode()
-    req = urllib.request.Request(
-        COBALT_URL,
-        data=payload,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
+    oembed_url = (
+        f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json"
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.loads(resp.read())
+    try:
+        req = urllib.request.Request(oembed_url)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            meta = json.loads(resp.read())
+    except Exception:
+        meta = {"title": "YouTube Video", "author_name": ""}
+
+    return {
+        "title": meta.get("title", "YouTube Video"),
+        "thumbnail": f"https://img.youtube.com/vi/{vid}/maxresdefault.jpg",
+        "uploader": meta.get("author_name", ""),
+        "duration": "",
+        "video_formats": YT_VIDEO_PRESETS,
+        "audio_formats": YT_AUDIO_PRESETS,
+    }
 
 
 def get_ig_info(url: str) -> dict:
-    """Get Instagram media info via cobalt (no cookies needed)."""
-    data = cobalt_request(url)
+    """Get Instagram media info via Cobalt."""
+    data = cobalt_request({"url": url})
     status = data.get("status")
     if status == "error":
         code = data.get("error", {}).get("code", "unknown")
         raise RuntimeError(f"Instagram fetch failed: {code}")
 
     def _ig_format(direct_url: str, label: str = "Video", ext: str = "mp4", thumb: str = "") -> dict:
-        """Build IG format entry, fetching file size from CDN."""
         size_str = "Unknown"
         size_bytes = 0
         try:
-            import urllib.request as _urlreq
-            req = _urlreq.Request(direct_url, method="HEAD", headers={
+            head_req = urllib.request.Request(direct_url, method="HEAD", headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Referer": "https://www.instagram.com/",
             })
-            with _urlreq.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(head_req, timeout=10) as resp:
                 cl = resp.headers.get("Content-Length")
                 if cl:
                     size_bytes = int(cl)
@@ -237,15 +209,7 @@ def get_ig_info(url: str) -> dict:
             "audio_formats": [],
         }
 
-    if status == "redirect":
-        return {
-            "title": data.get("filename", "Instagram Video"),
-            "thumbnail": "",
-            "video_formats": [_ig_format(data.get("url", ""))],
-            "audio_formats": [],
-        }
-
-    if status == "tunnel":
+    if status in ("redirect", "tunnel"):
         return {
             "title": data.get("filename", "Instagram Media"),
             "thumbnail": "",
@@ -261,31 +225,24 @@ def get_info(url: str) -> dict:
     platform, _ = detect_platform(url)
     if platform == "instagram":
         return get_ig_info(url)
-    raw = run_ytdlp(["--dump-json", "--no-download", url])
-    return json.loads(raw)
+    return get_yt_info(url)
 
 
-def format_duration(seconds: Optional[int]) -> str:
-    if not seconds:
-        return "0:00"
-    m, s = divmod(int(seconds), 60)
-    h, m = divmod(m, 60)
-    if h:
-        return f"{h}:{m:02d}:{s:02d}"
-    return f"{m}:{s:02d}"
+# ─── Cobalt error mapping ───
 
-
-def format_size(bytes_val: Optional[int]) -> str:
-    if not bytes_val:
-        return "Unknown"
-    for unit in ["B", "KB", "MB", "GB"]:
-        if bytes_val < 1024:
-            return f"{bytes_val:.1f} {unit}"
-        bytes_val /= 1024
-    return f"{bytes_val:.1f} TB"
+COBALT_ERRORS = {
+    "error.fetch.fail": "Could not fetch the video. It may be private or region-locked.",
+    "error.fetch.empty": "No downloadable media found.",
+    "error.content.video.unavailable": "Video is unavailable.",
+    "error.content.video.region": "Video is region-locked.",
+    "error.content.video.private": "Video is private.",
+    "error.rate": "Rate limited. Try again in a few seconds.",
+    "error.link.unsupported": "This URL is not supported.",
+}
 
 
 # ─── API Routes ───
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -300,143 +257,54 @@ async def api_info(request: Request):
     if not url:
         raise HTTPException(400, "URL required")
 
-    platform, video_id = detect_platform(url)
+    platform, _ = detect_platform(url)
     if platform == "unknown":
         raise HTTPException(400, "Unsupported URL. Supported: YouTube, Instagram")
 
     try:
         info = await asyncio.to_thread(get_info, url)
     except RuntimeError as e:
-        msg = str(e)
-        # Clean up yt-dlp error messages
-        if "Sign in to confirm" in msg or "bot" in msg.lower():
-            msg = "YouTube requires sign-in for this video. Try another video or use cookies."
-        elif "ERROR:" in msg:
-            msg = msg.split("ERROR:")[-1].strip()[:200]
-        raise HTTPException(422, msg)
-
-    # Build format list
-    formats = []
-    seen = set()
-
-    for f in info.get("formats", []):
-        fid = f.get("format_id", "")
-        vcodec = f.get("vcodec", "none")
-        acodec = f.get("acodec", "none")
-        ext = f.get("ext", "")
-        height = f.get("height")
-        width = f.get("width")
-        abr = f.get("abr")
-        vbr = f.get("vbr")
-        filesize = f.get("filesize") or f.get("filesize_approx")
-        format_note = f.get("format_note", "")
-
-        # Video+Audio
-        if vcodec != "none" and height:
-            label = f"{height}p"
-            key = f"video-{height}"
-            if key not in seen:
-                seen.add(key)
-                formats.append({
-                    "id": fid,
-                    "type": "video",
-                    "label": label,
-                    "quality": height,
-                    "ext": ext,
-                    "size": format_size(filesize),
-                    "filesize_bytes": filesize or 0,
-                })
-
-        # Audio only
-        elif vcodec == "none" and acodec != "none" and abr:
-            label = f"{int(abr)}kbps"
-            key = f"audio-{int(abr)}"
-            if key not in seen:
-                seen.add(key)
-                formats.append({
-                    "id": fid,
-                    "type": "audio",
-                    "label": label,
-                    "quality": int(abr),
-                    "ext": ext if ext in ("mp3", "m4a", "opus", "wav") else "mp3",
-                    "size": format_size(filesize),
-                    "filesize_bytes": filesize or 0,
-                })
-
-    # Sort: video by quality desc, audio by bitrate desc
-    video_formats = sorted(
-        [f for f in formats if f["type"] == "video"],
-        key=lambda x: x["quality"], reverse=True
-    )
-    audio_formats = sorted(
-        [f for f in formats if f["type"] == "audio"],
-        key=lambda x: x["quality"], reverse=True
-    )
-
-    # Deduplicate by quality label, keep best
-    def dedup(fmts):
-        best = {}
-        for f in fmts:
-            key = f["label"]
-            if key not in best or f["filesize_bytes"] > best[key]["filesize_bytes"]:
-                best[key] = f
-        return list(best.values())
+        raise HTTPException(422, str(e))
 
     return {
         "platform": platform,
         "title": info.get("title", "Untitled"),
         "thumbnail": info.get("thumbnail", ""),
-        "duration": format_duration(info.get("duration")),
+        "duration": info.get("duration", ""),
         "uploader": info.get("uploader", ""),
         "view_count": info.get("view_count", 0),
         "url": url,
-        "video_formats": dedup(video_formats)[:6] if video_formats else info.get("video_formats", []),
-        "audio_formats": dedup(audio_formats)[:4] if audio_formats else info.get("audio_formats", []),
-        # IG/cobalt: include direct URL for download
+        "video_formats": info.get("video_formats", []),
+        "audio_formats": info.get("audio_formats", []),
         "_ig_direct_url": (info.get("video_formats") or [{}])[0].get("_direct_url"),
     }
 
 
 @app.post("/api/download")
 async def api_download(request: Request):
-    """Stream download via yt-dlp (YouTube) or cobalt direct URL (Instagram)."""
+    """Stream download via Cobalt."""
     body = await request.json()
     url = body.get("url", "").strip()
-    format_id = body.get("format_id", "")
+    format_id = body.get("format_id", "max")
     mode = body.get("mode", "video")  # "video" or "audio"
     direct_url = body.get("direct_url")  # cobalt direct URL for IG
 
     if not url and not direct_url:
         raise HTTPException(400, "url or direct_url required")
 
-    # ── Instagram: always use cobalt (never yt-dlp) ──
+    # ── Instagram: use cobalt direct URL ──
     if direct_url or (url and detect_platform(url)[0] == "instagram"):
-        import urllib.request as _urlreq
         if not direct_url:
-            # Frontend didn't pass direct_url, fetch from cobalt now
-            cobalt = cobalt_request(url)
+            cobalt = cobalt_request({"url": url})
             if cobalt.get("status") == "error":
                 err = cobalt.get("error", {}).get("code", "unknown")
-                raise HTTPException(422, f"Cobalt error: {err}")
+                raise HTTPException(422, COBALT_ERRORS.get(err, f"Cobalt error: {err}"))
             direct_url = cobalt.get("url")
             if not direct_url:
                 raise HTTPException(422, "Cobalt returned no video URL")
         filename = body.get("filename", "instagram_video.mp4")
-
-        def ig_stream():
-            req = _urlreq.Request(direct_url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer": "https://www.instagram.com/",
-            })
-            with _urlreq.urlopen(req, timeout=120) as resp:
-                while True:
-                    chunk = resp.read(65536)
-                    if not chunk:
-                        break
-                    yield chunk
-
         return StreamingResponse(
-            ig_stream(),
+            cobalt_stream(direct_url),
             media_type="application/octet-stream",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
@@ -445,94 +313,107 @@ async def api_download(request: Request):
     if platform == "unknown":
         raise HTTPException(400, "Unsupported URL")
 
-    # Create temp file
-    tmpdir = tempfile.mkdtemp(prefix="mediadl_")
-    output_tpl = os.path.join(tmpdir, "%(title).80s.%(ext)s")
-
+    # ── YouTube: cobalt download ──
+    payload: dict = {"url": url}
     if mode == "audio":
-        args = [
-            "-f", format_id,
-            "-x", "--audio-format", "mp3",
-            "--audio-quality", "0",
-            "-o", output_tpl,
-            url,
-        ]
+        payload["downloadMode"] = "audio"
+        payload["audioFormat"] = "mp3"
+        payload["audioBitrate"] = format_id if format_id in ("320", "256", "128") else "320"
     else:
-        args = [
-            "-f", f"{format_id}+bestaudio/best",
-            "--merge-output-format", "mp4",
-            "-o", output_tpl,
-            url,
-        ]
+        payload["downloadMode"] = "auto"
+        payload["videoQuality"] = format_id if format_id in ("max", "2160", "1440", "1080", "720", "480") else "max"
+        payload["youtubeVideoCodec"] = "h264"
+        payload["youtubeBetterAudio"] = True
 
     try:
-        await asyncio.to_thread(run_ytdlp, args, timeout=300)
-    except RuntimeError as e:
-        raise HTTPException(422, str(e))
+        cobalt = await asyncio.to_thread(cobalt_request, payload, 120)
+    except Exception as e:
+        raise HTTPException(422, f"Cobalt request failed: {e}")
 
-    # Find downloaded file
-    files = list(Path(tmpdir).glob("*"))
-    if not files:
-        raise HTTPException(422, "Download failed — no output file")
+    status = cobalt.get("status")
 
-    filepath = files[0]
-    filename = filepath.name
+    if status == "error":
+        code = cobalt.get("error", {}).get("code", "unknown")
+        raise HTTPException(422, COBALT_ERRORS.get(code, f"Download failed: {code}"))
 
-    # Stream file
-    def cleanup():
-        try:
-            filepath.unlink()
-            Path(tmpdir).rmdir()
-        except:
-            pass
+    if status in ("tunnel", "redirect"):
+        tunnel_url = cobalt.get("url")
+        filename = cobalt.get("filename", "download.mp4")
+        return StreamingResponse(
+            cobalt_stream(tunnel_url),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
-    return FileResponse(
-        path=str(filepath),
-        filename=filename,
-        media_type="application/octet-stream",
-        background=cleanup,
-    )
+    if status == "picker":
+        items = cobalt.get("picker", [])
+        for item in items:
+            if item.get("type") == "video":
+                return StreamingResponse(
+                    cobalt_stream(item["url"]),
+                    media_type="application/octet-stream",
+                    headers={"Content-Disposition": 'attachment; filename="video.mp4"'},
+                )
+        if items:
+            return StreamingResponse(
+                cobalt_stream(items[0]["url"]),
+                media_type="application/octet-stream",
+                headers={"Content-Disposition": 'attachment; filename="media.mp4"'},
+            )
+        raise HTTPException(422, "No downloadable items found")
+
+    raise HTTPException(422, f"Unexpected cobalt response: {status}")
 
 
 # ─── Health check ───
 
+
 @app.get("/api/health")
 async def health():
-    has_cookies = COOKIES_FILE.exists()
-    return {"status": "ok", "service": "mediadl", "has_cookies": has_cookies}
+    cobalt_ok = False
+    cobalt_version = ""
+    try:
+        req = urllib.request.Request(f"{COBALT_URL}/health")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            cobalt_ok = "cobalt" in data
+            cobalt_version = data.get("cobalt", {}).get("version", "")
+    except Exception:
+        pass
+    return {"status": "ok", "service": "mediadl", "cobalt": cobalt_ok, "cobalt_version": cobalt_version}
 
 
-# ─── Cookie management ───
+# ─── Cookie management (legacy, no longer used by cobalt) ───
 
-from fastapi import UploadFile, File
+COOKIES_FILE = Path(__file__).parent / "cookies.txt"
+COOKIES_SOURCE = Path(__file__).parent / ".cookies-source.txt"
+
 
 @app.post("/api/cookies")
 async def upload_cookies(file: UploadFile = File(...)):
-    """Upload YouTube cookies.txt (Netscape format)."""
+    """Upload cookies.txt (Netscape format). Kept for future use."""
     content = await file.read()
     text = content.decode("utf-8", errors="ignore")
-    if "youtube.com" not in text.lower() and "# Netscape" not in text:
+    if "# Netscape" not in text:
         raise HTTPException(400, "Invalid cookies file. Export from browser in Netscape format.")
     COOKIES_FILE.write_bytes(content)
-    # Save as protected source too
     COOKIES_SOURCE.write_bytes(content)
     COOKIES_SOURCE.chmod(0o444)
-    return {"status": "ok", "platform": "youtube", "message": "YouTube cookies uploaded"}
+    return {"status": "ok", "message": "Cookies uploaded (not required with Cobalt)"}
 
 
 @app.get("/api/cookies/status")
 async def cookies_status():
-    """Check which platform cookies are configured."""
     return {
         "youtube": COOKIES_SOURCE.exists(),
-        "instagram": False,  # IG uses cobalt, no cookies needed
+        "instagram": False,
+        "note": "Cobalt handles all downloads — cookies optional",
     }
 
 
 @app.delete("/api/cookies")
 async def delete_cookies():
-    """Remove stored YouTube cookies."""
     for f in [COOKIES_FILE, COOKIES_SOURCE]:
         if f.exists():
             f.unlink()
-    return {"status": "ok", "message": "YouTube cookies removed"}
+    return {"status": "ok", "message": "Cookies removed"}
