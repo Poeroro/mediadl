@@ -44,14 +44,14 @@ DELETE /api/cookies     — remove uploaded cookies
 
 ```bash
 # Fetch video info
-curl -X POST https://dl.tempmeil.xyz/api/info \
+curl -X POST https://Yourdomain.com/api/info \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+  -d '{"url": "https://www.youtube.com/watch?v=......."}'
 
 # Download (streams the file)
-curl -X POST https://dl.tempmeil.xyz/api/download \
+curl -X POST https://Yourdomain.com/api/download \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "format_id": "best"}' \
+  -d '{"url": "https://www.youtube.com/watch?v=........", "format_id": "best"}' \
   -o video.mp4
 ```
 
@@ -87,7 +87,7 @@ sudo systemctl enable --now mediadl
 
 ```nginx
 server {
-    server_name dl.tempmeil.xyz;
+    server_name Yourdomain.com;
 
     location / {
         proxy_pass http://127.0.0.1:8181;
